@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Regenerate all manuscript and supplementary figures from the evidence workbook.
+"""Regenerate manuscript Figures 2–6 and Supplementary Figure S1.
 
 The script has no dependency on the copyrighted source PDFs or on intermediate
-CSV files. It reads only ``Supplementary_Data_S1_Sediment_LCA_Evidence.xlsx``
+CSV files. It reads only the reviewer-revised supplementary evidence workbook
 and writes publication-ready PNG/PDF figures plus auditable derived tables.
+Figure 1 (PRISMA flow diagram) is intentionally excluded because it is prepared
+manually.
 
 Example
 -------
 python generate_figures.py \
-  --workbook ../Supplementary_Data_S1_Sediment_LCA_Evidence.xlsx \
+  --workbook ../Supplementary_Data_REV2.xlsx \
   --output-dir generated_figures
 """
 
@@ -56,7 +58,6 @@ plt.rcParams.update(
 
 
 REQUIRED_SHEETS = {
-    "Screening",
     "Article Evidence",
     "Contribution Analysis",
     "Outcome Evidence",
@@ -65,7 +66,7 @@ REQUIRED_SHEETS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate the five manuscript figures and Figure S1 from the evidence workbook."
+        description="Generate manuscript Figures 2–6 and Supplementary Figure S1 from the evidence workbook."
     )
     parser.add_argument("--workbook", required=True, type=Path, help="Path to the evidence XLSX workbook.")
     parser.add_argument(
@@ -147,13 +148,8 @@ def load_workbook(path: Path) -> dict[str, pd.DataFrame]:
             "Score_LCIA_Reporting",
             "Score_Allocation_Cutoff",
             "Score_Robustness",
-            "Methodological_Completeness_Score",
+            "Descriptive_Profile_Sum_0_12",
         ],
-    )
-    require_columns(
-        data["Screening"],
-        "Screening",
-        ["Record_ID", "PDF_Available", "Final_Decision"],
     )
     require_columns(
         data["Contribution Analysis"],
@@ -171,13 +167,13 @@ def load_workbook(path: Path) -> dict[str, pd.DataFrame]:
     return data
 
 
-def panel_label(ax: plt.Axes, label: str) -> None:
+def panel_label(ax: plt.Axes, label: str, fontsize: float = 17) -> None:
     ax.text(
         -0.055,
         1.035,
         f"({label})",
         transform=ax.transAxes,
-        fontsize=14,
+        fontsize=fontsize,
         fontweight="bold",
         color=NAVY,
         va="bottom",
@@ -216,12 +212,14 @@ def lollipop(ax: plt.Axes, frame: pd.DataFrame, total: int, color: str) -> None:
     data = frame.sort_values("Studies", ascending=True).reset_index(drop=True)
     y = np.arange(len(data))
     ax.hlines(y, 0, data["Studies"], color=LIGHT, lw=3, zorder=1)
-    ax.scatter(data["Studies"], y, s=95, color=color, edgecolor="white", lw=0.9, zorder=2)
+    ax.scatter(data["Studies"], y, s=125, color=color, edgecolor="white", lw=1.0, zorder=2)
     for yy, value in zip(y, data["Studies"]):
-        ax.text(value + 0.45, yy, f"{int(value)}  ({value / total:.0%})", va="center", color=INK, fontsize=9)
+        ax.text(value + 0.45, yy, f"{int(value)}  ({value / total:.0%})", va="center", color=INK, fontsize=11)
     ax.set_yticks(y, [textwrap.fill(str(x), 24) for x in data["Category"]])
     ax.set_xlim(0, max(data["Studies"]) * 1.34)
     ax.set_xlabel("Studies")
+    ax.tick_params(axis="both", labelsize=12)
+    ax.xaxis.label.set_size(12)
     clean_axis(ax)
 
 
@@ -236,11 +234,11 @@ def dot_strip(
     xs = np.arange(total)
     for i, (label, count, color) in enumerate(zip(labels, counts, colors)):
         y = rows - 1 - i
-        ax.scatter(xs, np.full(total, y), s=24, color=LIGHT, edgecolor="none")
-        ax.scatter(xs[:count], np.full(count, y), s=30, color=color, edgecolor="white", lw=0.25)
-        ax.text(-1.8, y, label, ha="right", va="center", fontsize=9, color=INK)
-        ax.text(total + 1.1, y, f"{count}/{total} ({count / total:.0%})", ha="left", va="center", fontsize=9, color=INK)
-    ax.set_xlim(-17, total + 16)
+        ax.scatter(xs, np.full(total, y), s=32, color=LIGHT, edgecolor="none")
+        ax.scatter(xs[:count], np.full(count, y), s=40, color=color, edgecolor="white", lw=0.3)
+        ax.text(-2.2, y, label, ha="right", va="center", fontsize=11, color=INK)
+        ax.text(total + 1.2, y, f"{count}/{total} ({count / total:.0%})", ha="left", va="center", fontsize=11, color=INK)
+    ax.set_xlim(-20, total + 18)
     ax.set_ylim(-0.8, rows - 0.2)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -303,7 +301,8 @@ def derive_tables(data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
 
     outcomes = data["Outcome Evidence"].copy()
     signal_order = [
-        "Higher-burden/hotspot signal",
+        "Higher-burden signal",
+        "Hotspot-only signal",
         "Mixed/conditional signal",
         "Lower-burden signal",
     ]
@@ -334,55 +333,6 @@ def export_tables(tables: dict[str, pd.DataFrame], output_dir: Path) -> None:
         frame.to_csv(table_dir / f"{name}.csv", encoding="utf-8-sig")
 
 
-def figure_1(screen: pd.DataFrame, output_dir: Path, dpi: int) -> None:
-    records = len(screen)
-    full_texts = int(screen["PDF_Available"].map(yes).sum())
-    included = int(screen["Final_Decision"].astype(str).str.lower().eq("include").sum())
-    unavailable = records - full_texts
-    full_text_excluded = full_texts - included
-
-    fig, ax = plt.subplots(figsize=(8.2, 5.4))
-    ax.axis("off")
-    boxes = [
-        (0.5, 0.88, f"Records identified in Scopus\n(n = {records})"),
-        (0.5, 0.66, f"Title/abstract records screened\n(n = {records})"),
-        (0.5, 0.44, f"Full texts available and assessed\n(n = {full_texts})"),
-        (0.5, 0.20, f"Studies included in the core synthesis\n(n = {included})"),
-    ]
-    for x, y, label in boxes:
-        ax.text(
-            x,
-            y,
-            label,
-            ha="center",
-            va="center",
-            color="white",
-            fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.55", facecolor=NAVY, edgecolor="none"),
-        )
-    for y1, y2 in [(0.83, 0.71), (0.61, 0.49), (0.39, 0.26)]:
-        ax.annotate("", xy=(0.5, y2), xytext=(0.5, y1), arrowprops=dict(arrowstyle="->", color=BLUE, lw=2))
-    ax.text(
-        0.79,
-        0.55,
-        f"Full text unavailable\n(n = {unavailable}; excluded after adjudication)",
-        ha="center",
-        va="center",
-        fontsize=8.7,
-        bbox=dict(boxstyle="round,pad=0.45", facecolor=LIGHT, edgecolor="#98A2B3"),
-    )
-    ax.text(
-        0.79,
-        0.31,
-        f"Full texts excluded\n(n = {full_text_excluded})\n+ {unavailable} records without retrievable full text",
-        ha="center",
-        va="center",
-        fontsize=8.7,
-        bbox=dict(boxstyle="round,pad=0.45", facecolor="#FCE8E6", edgecolor=RED),
-    )
-    save_figure(fig, output_dir, "Figure_01_PRISMA", dpi)
-
-
 def figure_2(article: pd.DataFrame, output_dir: Path, dpi: int) -> None:
     plot_data = article.dropna(subset=["Year"]).copy()
     plot_data["Year"] = plot_data["Year"].astype(int)
@@ -400,7 +350,8 @@ def figure_2(article: pd.DataFrame, output_dir: Path, dpi: int) -> None:
     fig, ax = plt.subplots(figsize=(9.2, 4.8))
     bottom = np.zeros(len(year_scope))
     for color, column in zip(palette, year_scope.columns):
-        ax.bar(year_scope.index, year_scope[column], bottom=bottom, label=column, color=color, width=0.8)
+        display_label = column.replace("valorisation", "valorization")
+        ax.bar(year_scope.index, year_scope[column], bottom=bottom, label=display_label, color=color, width=0.8)
         bottom += year_scope[column].to_numpy()
     ax.set_ylabel("Number of studies")
     ax.set_xlabel("Publication year")
@@ -418,8 +369,8 @@ def figure_3(article: pd.DataFrame, tables: dict[str, pd.DataFrame], output_dir:
     databases = tables["databases"]
     robustness = tables["robustness"]
 
-    fig = plt.figure(figsize=(15.5, 10.5), constrained_layout=True)
-    grid = fig.add_gridspec(2, 2, width_ratios=[1.05, 1], height_ratios=[1, 1], wspace=0.20, hspace=0.22)
+    fig = plt.figure(figsize=(16.8, 12.8), constrained_layout=True)
+    grid = fig.add_gridspec(3, 2, width_ratios=[1.10, 1], height_ratios=[1.10, 0.90, 0.98], wspace=0.16, hspace=0.12)
 
     ax = fig.add_subplot(grid[0, 0])
     order = [
@@ -430,7 +381,9 @@ def figure_3(article: pd.DataFrame, tables: dict[str, pd.DataFrame], output_dir:
         "Partial life cycle — material production and operation",
     ]
     counts = boundaries.set_index("Category")["Studies"].to_dict()
-    stages = ["Upstream\nmaterials", "Treatment /\nproduction", "Downstream\nmanagement", "End-of-life /\nstewardship"]
+    stages = ["Upstream\nmaterials", "Treatment", "Downstream", "End-of-life"]
+    stage_x = np.arange(4) * 1.55
+    count_x = 6.30
     coverage = {
         "Cradle-to-grave": [1, 1, 1, 1],
         "Cradle-to-gate": [1, 1, 0, 0],
@@ -441,74 +394,51 @@ def figure_3(article: pd.DataFrame, tables: dict[str, pd.DataFrame], output_dir:
     available_order = [name for name in order if name in counts]
     for i, name in enumerate(available_order):
         y = len(available_order) - 1 - i
-        ax.hlines(y, -0.05, 3.05, color=LIGHT, lw=2, zorder=0)
+        ax.hlines(y, stage_x[0] - 0.05, stage_x[-1] + 0.05, color=LIGHT, lw=2, zorder=0)
         for x, value in enumerate(coverage[name]):
             if value == 1:
-                ax.scatter(x, y, s=290, color=TEAL, edgecolor="white", lw=1.2, zorder=2)
+                ax.scatter(stage_x[x], y, s=290, color=TEAL, edgecolor="white", lw=1.2, zorder=2)
             elif value == 0.5:
-                ax.scatter(x, y, s=290, color=GOLD, edgecolor="white", lw=1.2, zorder=2)
+                ax.scatter(stage_x[x], y, s=290, color=GOLD, edgecolor="white", lw=1.2, zorder=2)
             else:
-                ax.scatter(x, y, s=115, facecolor="white", edgecolor="#B7C0C8", lw=1.2, zorder=1)
+                ax.scatter(stage_x[x], y, s=115, facecolor="white", edgecolor="#B7C0C8", lw=1.2, zorder=1)
         count = int(counts[name])
-        ax.scatter(4.05, y, s=110 + 16 * count, color=NAVY, alpha=0.92, edgecolor="white", lw=1)
-        ax.text(4.05, y, str(count), color="white", ha="center", va="center", fontweight="bold", fontsize=9)
+        ax.scatter(count_x, y, s=135 + 20 * count, color=NAVY, alpha=0.92, edgecolor="white", lw=1)
+        ax.text(count_x, y, str(count), color="white", ha="center", va="center", fontweight="bold", fontsize=11)
     ax.set_yticks(np.arange(len(available_order)), [textwrap.fill(x, 24) for x in available_order[::-1]])
-    ax.set_xticks(range(4), stages)
-    ax.text(4.05, len(available_order) - 0.35, "Studies", ha="center", va="bottom", fontsize=9, color=MID)
-    ax.set_xlim(-0.5, 4.7)
+    ax.set_xticks(stage_x, stages)
+    ax.text(count_x, len(available_order) - 0.35, "Studies", ha="center", va="bottom", fontsize=11, color=MID)
+    ax.set_xlim(-0.80, 6.95)
     ax.set_ylim(-0.7, len(available_order) - 0.15)
     ax.spines[["left", "bottom"]].set_visible(False)
-    ax.tick_params(length=0)
+    ax.tick_params(length=0, labelsize=12)
     ax.legend(
         handles=[
-            Line2D([0], [0], marker="o", color="none", markerfacecolor=TEAL, markeredgecolor="white", markersize=9, label="Included stage"),
-            Line2D([0], [0], marker="o", color="none", markerfacecolor=GOLD, markeredgecolor="white", markersize=9, label="Selected/partial stage"),
-            Line2D([0], [0], marker="o", color="none", markerfacecolor="white", markeredgecolor="#B7C0C8", markersize=7, label="Outside boundary"),
+            Line2D([0], [0], marker="o", color="none", markerfacecolor=TEAL, markeredgecolor="white", markersize=11, label="Included stage"),
+            Line2D([0], [0], marker="o", color="none", markerfacecolor=GOLD, markeredgecolor="white", markersize=11, label="Selected/partial stage"),
+            Line2D([0], [0], marker="o", color="none", markerfacecolor="white", markeredgecolor="#B7C0C8", markersize=9, label="Outside boundary"),
         ],
         frameon=False,
         ncol=3,
         loc="lower left",
-        bbox_to_anchor=(0, -0.21),
-        fontsize=8,
+        bbox_to_anchor=(0, -0.22),
+        fontsize=11,
     )
-    panel_label(ax, "A")
+    panel_label(ax, "A", fontsize=14)
 
     ax = fig.add_subplot(grid[0, 1])
     lollipop(ax, methods, total, BLUE)
-    panel_label(ax, "B")
+    panel_label(ax, "B", fontsize=14)
 
     ax = fig.add_subplot(grid[1, 0])
     lollipop(ax, databases, total, ORANGE)
-    panel_label(ax, "C")
+    panel_label(ax, "C", fontsize=14)
 
     ax = fig.add_subplot(grid[1, 1])
-    dot_strip(
-        ax,
-        robustness["Analysis"].tolist(),
-        robustness["Yes"].astype(int).tolist(),
-        [TEAL, BLUE, ORANGE],
-        total,
-    )
-    panel_label(ax, "D")
-    save_figure(fig, output_dir, "Figure_03_Methodological_choices", dpi)
-
-
-def figure_4(
-    article: pd.DataFrame,
-    contribution: pd.DataFrame,
-    tables: dict[str, pd.DataFrame],
-    output_dir: Path,
-    dpi: int,
-) -> None:
-    total = len(article)
-    fig = plt.figure(figsize=(16, 11.2), constrained_layout=True)
-    grid = fig.add_gridspec(2, 2, width_ratios=[1.03, 1], height_ratios=[0.88, 1.12], wspace=0.18, hspace=0.20)
-
-    ax = fig.add_subplot(grid[0, 0])
     normalization = article["Normalization_type"].value_counts().to_dict()
     weighting = article["Weighting_type"].value_counts().to_dict()
     labels = [
-        "LCIA normalisation / endpoint",
+        "LCIA normalization / endpoint",
         "Comparative rescaling",
         "LCIA/method weighting",
         "Ad hoc weighting",
@@ -523,67 +453,244 @@ def figure_4(
     ]
     dot_strip(ax, labels, counts, [BLUE, BLUE, ORANGE, ORANGE, GOLD], total)
     ax.axhline(2.5, color="#B7C0C8", lw=0.8)
-    panel_label(ax, "A")
+    panel_label(ax, "D", fontsize=14)
 
-    ax = fig.add_subplot(grid[0, 1])
-    scope = tables["setting_scope"].reindex(
-        index=["Remediation/risk control", "Management/placement", "Beneficial use/valorisation", "Resource recovery"],
-        columns=["Marine/coastal", "Freshwater"],
-        fill_value=0,
+    ax = fig.add_subplot(grid[2, 0])
+    dot_strip(
+        ax,
+        robustness["Analysis"].tolist(),
+        robustness["Yes"].astype(int).tolist(),
+        [TEAL, BLUE, ORANGE],
+        total,
     )
-    denominators = article["Setting_group"].value_counts().reindex(["Marine/coastal", "Freshwater"])
-    shares = scope.div(denominators, axis=1)
-    cmap = LinearSegmentedColormap.from_list("scope", ["#F3F6F8", "#A9D7CF", TEAL, NAVY])
-    image = ax.imshow(shares.to_numpy(), cmap=cmap, vmin=0, vmax=max(0.70, shares.to_numpy().max()), aspect="auto")
-    for i in range(scope.shape[0]):
-        for j in range(scope.shape[1]):
-            count = int(scope.iloc[i, j])
-            share = shares.iloc[i, j]
-            ax.text(j, i, f"{count}\n{share:.0%}", ha="center", va="center", color="white" if share > 0.43 else INK, fontweight="bold")
-    ax.set_xticks(range(2), [f"Marine/coastal\n(n = {int(denominators.iloc[0])})", f"Freshwater\n(n = {int(denominators.iloc[1])})"])
-    ax.set_yticks(range(4), [textwrap.fill(x, 23) for x in scope.index])
+    panel_label(ax, "E", fontsize=14)
+
+    ax = fig.add_subplot(grid[2, 1])
+    score_columns = [
+        "Score_FU_Boundaries",
+        "Score_Foreground_Data",
+        "Score_Background_DB",
+        "Score_LCIA_Reporting",
+        "Score_Allocation_Cutoff",
+        "Score_Robustness",
+    ]
+    criterion_labels = [
+        "FU and boundaries",
+        "Foreground data",
+        "Background database",
+        "LCIA reporting",
+        "Allocation and cut-off",
+        "Interpretation robustness",
+    ]
+    score_counts = pd.DataFrame(
+        {
+            score: [int((pd.to_numeric(article[column], errors="coerce") == score).sum()) for column in score_columns]
+            for score in [0, 1, 2]
+        },
+        index=criterion_labels,
+    )
+    shares = score_counts.div(total)
+    y = np.arange(len(shares))
+    left = np.zeros(len(shares))
+    colors = ["#E8EDF1", "#A9C9DC", NAVY]
+    for score, color in zip([0, 1, 2], colors):
+        values = shares[score].to_numpy()
+        bars = ax.barh(y, values, left=left, color=color, edgecolor="white", lw=0.8, label=f"Score {score}")
+        for bar, count, share in zip(bars, score_counts[score], values):
+            if count >= 4:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_y() + bar.get_height() / 2,
+                    str(int(count)),
+                    ha="center",
+                    va="center",
+                    fontsize=11,
+                    fontweight="bold",
+                    color="white" if score == 2 else INK,
+                )
+        left += values
+    ax.set_yticks(y, [textwrap.fill(label, 25) for label in criterion_labels])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1)
+    ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+    ax.set_xlabel("Share of studies")
+    ax.tick_params(axis="both", labelsize=12)
+    ax.xaxis.label.set_size(12)
+    ax.grid(axis="x", color=LIGHT, lw=0.7, zorder=0)
+    ax.legend(frameon=False, ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.27), fontsize=11)
+    clean_axis(ax)
+    panel_label(ax, "F", fontsize=14)
+    save_figure(fig, output_dir, "Figure_04_Methodological_practices", dpi)
+
+
+def figure_4(
+    article: pd.DataFrame,
+    tables: dict[str, pd.DataFrame],
+    output_dir: Path,
+    dpi: int,
+) -> None:
+    short = {
+        "Biological/phytoremediation": "Bio / phyto",
+        "Capping/in-situ amendment": "Capping / amendment",
+        "Co-composting": "Co-composting",
+        "Construction materials": "Construction",
+        "Dredging/placement/disposal": "Dredging / disposal",
+        "Land/horticultural use": "Land use",
+        "Physical separation/flotation": "Physical separation",
+        "Resource recovery": "Resource recovery",
+        "Sediment bypass/coastal NBS": "Coastal NBS / bypass",
+        "Solidification/stabilisation": "S/S",
+        "Thermal/microwave/calcination": "Thermal",
+        "Washing/leaching": "Washing / leaching",
+    }
+
+    technology_frequency = Counter()
+    for technologies in article["Technology_groups"]:
+        technology_frequency.update(set(technologies))
+    evidence = tables["technology_contaminant"].T
+    setting = tables["setting_technologies"].copy()
+    technology_order = sorted(
+        set(evidence.index) | set(setting.index),
+        key=lambda technology: (-technology_frequency.get(technology, 0), technology),
+    )
+    contaminant_order = [
+        "Metals/metalloids",
+        "Organic contaminants",
+        "Mixed/unspecified contamination",
+        "Nutrients/phosphorus",
+        "Microplastics",
+        "Rare earth elements",
+    ]
+    evidence = evidence.reindex(index=technology_order, columns=contaminant_order, fill_value=0)
+    setting = setting.reindex(index=technology_order, fill_value=0)
+
+    fig = plt.figure(figsize=(17.0, 10.4), constrained_layout=True)
+    grid = fig.add_gridspec(1, 2, width_ratios=[1.10, 1], wspace=0.10)
+
+    ax = fig.add_subplot(grid[0, 0])
+    array = evidence.to_numpy()
+    image = ax.imshow(
+        array,
+        cmap=LinearSegmentedColormap.from_list("evidence", ["#F3F6F8", "#A9D7CF", TEAL, NAVY]),
+        aspect="auto",
+        vmin=0,
+        vmax=max(1, array.max()),
+    )
+    contaminant_labels = {
+        "Metals/metalloids": "Metals /\nmetalloids",
+        "Organic contaminants": "Organic\ncontaminants",
+        "Mixed/unspecified contamination": "Mixed /\nunspecified",
+        "Nutrients/phosphorus": "Nutrients /\nphosphorus",
+        "Microplastics": "Microplastics",
+        "Rare earth elements": "Rare earth\nelements",
+    }
+    ax.set_xticks(np.arange(len(evidence.columns)), [contaminant_labels[x] for x in evidence.columns])
+    ax.xaxis.tick_top()
+    ax.tick_params(axis="x", pad=9, labelsize=12)
+    ax.set_yticks(np.arange(len(evidence.index)), [short.get(x, x) for x in evidence.index])
+    ax.tick_params(axis="y", labelsize=12)
+    for i in range(array.shape[0]):
+        for j in range(array.shape[1]):
+            if array[i, j] > 0:
+                ax.text(j, i, str(int(array[i, j])), ha="center", va="center", fontsize=11, color="white" if array[i, j] > 0.52 * array.max() else INK, fontweight="bold")
     ax.tick_params(length=0)
     ax.spines[:].set_visible(False)
-    colorbar = fig.colorbar(image, ax=ax, fraction=0.045, pad=0.03)
-    colorbar.set_label("Share within setting")
-    colorbar.ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-    panel_label(ax, "B")
+    ax.set_xticks(np.arange(-0.5, len(evidence.columns), 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(evidence.index), 1), minor=True)
+    ax.grid(which="minor", color="white", lw=1.2)
+    ax.tick_params(which="minor", bottom=False, left=False)
+    colorbar = fig.colorbar(image, ax=ax, orientation="horizontal", fraction=0.045, pad=0.045, aspect=35)
+    explicit_target_n = int(
+        (~article["Contaminant_groups"].map(lambda values: "No explicit remediation target" in values)).sum()
+    )
+    colorbar.set_label(
+        f"Study count per pairing (explicit-target subset, n = {explicit_target_n})"
+    )
+    colorbar.set_ticks(np.arange(0, array.max() + 1, 1))
+    colorbar.ax.tick_params(labelsize=12)
+    colorbar.ax.xaxis.label.set_size(12)
+    panel_label(ax, "A", fontsize=14)
 
-    ax = fig.add_subplot(grid[1, 0])
-    circularity_columns = [
-        "Circularity_waste_prevention",
-        "Circularity_sediment_recycling_recovery",
-        "Circularity_byproduct_or_secondary_input",
-        "Circularity_avoided_burden_modelled",
+    ax = fig.add_subplot(grid[0, 1])
+    denominators = article["Setting_group"].value_counts()
+    setting["Marine_share"] = setting["Marine/coastal"] / denominators["Marine/coastal"]
+    setting["Fresh_share"] = setting["Freshwater"] / denominators["Freshwater"]
+    setting["Max"] = setting[["Marine_share", "Fresh_share"]].max(axis=1)
+    y = np.arange(len(setting))
+    for yy, marine, fresh in zip(y, setting["Marine_share"], setting["Fresh_share"]):
+        ax.hlines(yy, min(marine, fresh), max(marine, fresh), color="#B7C0C8", lw=1.8, zorder=1)
+    ax.scatter(setting["Marine_share"], y, s=90, color=BLUE, edgecolor="white", lw=0.8, label=f"Marine/coastal (n = {denominators['Marine/coastal']})", zorder=3)
+    ax.scatter(setting["Fresh_share"], y, s=90, color=TEAL, marker="D", edgecolor="white", lw=0.8, label=f"Freshwater (n = {denominators['Freshwater']})", zorder=3)
+    ax.set_yticks(y, [])
+    ax.set_ylim(len(setting) - 0.5, -0.5)
+    upper_limit = max(0.62, setting["Max"].max() + 0.07)
+    ax.set_xlim(-0.025, upper_limit)
+    ax.set_xticks(np.arange(0, upper_limit + 0.001, 0.10))
+    ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+    ax.set_xlabel("Share of studies reporting each technology within setting")
+    ax.tick_params(axis="x", labelsize=12)
+    ax.xaxis.label.set_size(12)
+    ax.grid(axis="both", color=LIGHT, lw=0.7)
+    legend_handles, legend_labels = ax.get_legend_handles_labels()
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        frameon=False,
+        loc="center",
+        bbox_to_anchor=(0.76, 0.082),
+        ncol=2,
+        fontsize=11,
+    )
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#9AA4AD")
+    panel_label(ax, "B", fontsize=14)
+    save_figure(fig, output_dir, "Figure_03_Evidence_coverage", dpi)
+
+
+def figure_5(
+    article: pd.DataFrame,
+    contribution: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    tables: dict[str, pd.DataFrame],
+    output_dir: Path,
+    dpi: int,
+) -> None:
+    fig = plt.figure(figsize=(18.2, 9.8), constrained_layout=True)
+    grid = fig.add_gridspec(1, 2, width_ratios=[0.96, 1.04], wspace=0.20)
+
+    ax = fig.add_subplot(grid[0, 0])
+    signal_order = [
+        "Higher-burden signal",
+        "Hotspot-only signal",
+        "Mixed/conditional signal",
+        "Lower-burden signal",
     ]
-    short_names = ["Waste prevention", "Sediment recovery", "Secondary input", "Avoided burden"]
-    patterns = Counter(tuple(yes(row[column]) for column in circularity_columns) for _, row in article.iterrows())
-    top = patterns.most_common(9)
-    x = np.arange(len(top))
-    values = np.array([value for _, value in top])
-    ax.bar(x, values, color=NAVY, width=0.67)
-    for xx, value in zip(x, values):
-        ax.text(xx, value + 0.35, str(value), ha="center", va="bottom", color=INK, fontsize=9, fontweight="bold")
-    base = -2.2
-    step = 1.05
-    for index, (pattern, _) in enumerate(top):
-        active = [i for i, present in enumerate(pattern) if present]
-        if len(active) > 1:
-            positions = [base - i * step for i in active]
-            ax.vlines(index, min(positions), max(positions), color=INK, lw=1.2)
-        for i, present in enumerate(pattern):
-            ax.scatter(index, base - i * step, s=55 if present else 34, color=TEAL if present else LIGHT, edgecolor="white" if present else "none", lw=0.4, zorder=3)
-    for i, label in enumerate(short_names):
-        ax.text(-0.65, base - i * step, label, ha="right", va="center", fontsize=8.5, color=INK)
-    ax.set_xlim(-2.3, len(top) - 0.25)
-    ax.set_ylim(base - (len(short_names) - 1) * step - 0.7, max(values) + 2.0)
-    ax.set_xticks(x, [f"I{i + 1}" for i in range(len(top))])
-    ax.set_yticks(np.arange(0, max(values) + 1, 5))
-    ax.set_ylabel("Studies")
-    ax.grid(axis="y", color=LIGHT, lw=0.8, zorder=0)
-    panel_label(ax, "C")
+    signal_labels = ["Higher-burden\nsignal", "Hotspot-only\nsignal", "Mixed /\nconditional", "Lower-burden\nsignal"]
+    signal_colors = [RED, ORANGE, GOLD, TEAL]
+    summary = tables["outcome_summary"].copy()
+    summary = summary.sort_values(["Total_explicit_study_signals", "Impact_category"] if "Impact_category" in summary.columns else ["Total_explicit_study_signals"], ascending=True)
+    values = summary[signal_order].to_numpy()
+    yy, xx = np.indices((len(summary), len(signal_order)))
+    mask = values.ravel() > 0
+    ax.scatter(xx.ravel()[mask], yy.ravel()[mask], s=80 + 62 * values.ravel()[mask], c=np.array(signal_colors)[xx.ravel()[mask]], edgecolor="white", lw=1.0, zorder=3)
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            if values[i, j] > 0:
+                ax.text(j, i, str(int(values[i, j])), ha="center", va="center", color="white" if values[i, j] >= 4 else INK, fontsize=10.8, fontweight="bold", zorder=4)
+        ax.text(3.62, i, f"n = {int(summary.iloc[i]['Total_explicit_study_signals'])}", va="center", ha="left", fontsize=10.2, color=MID)
+    ax.set_xticks(range(4), signal_labels)
+    ax.set_yticks(range(len(summary)), [textwrap.fill(str(x), 24) for x in summary.index])
+    ax.set_xlim(-0.55, 4.18)
+    ax.set_ylim(-0.55, len(summary) - 0.45)
+    ax.tick_params(length=0, labelsize=11.2)
+    ax.set_xticks(np.arange(-0.5, 4, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(summary), 1), minor=True)
+    ax.grid(which="minor", color=LIGHT, lw=0.65)
+    ax.tick_params(which="minor", bottom=False, left=False)
+    ax.spines[:].set_visible(False)
+    panel_label(ax, "A", fontsize=14)
 
-    ax = fig.add_subplot(grid[1, 1])
+    ax = fig.add_subplot(grid[0, 1])
     technology_lookup = article.set_index("Record_ID")["Technology_groups"].to_dict()
     cooccurrences: list[tuple[str, str]] = []
     for _, row in contribution.iterrows():
@@ -601,7 +708,7 @@ def figure_4(
     ax.scatter(
         xx.ravel()[mask],
         yy.ravel()[mask],
-        s=45 + 105 * array.ravel()[mask],
+        s=60 + 130 * array.ravel()[mask],
         c=array.ravel()[mask],
         cmap=LinearSegmentedColormap.from_list("bubbles", ["#B8DCD5", TEAL, NAVY]),
         vmin=1,
@@ -612,7 +719,7 @@ def figure_4(
     for i in range(array.shape[0]):
         for j in range(array.shape[1]):
             if array[i, j] > 0:
-                ax.text(j, i, str(array[i, j]), ha="center", va="center", color="white" if array[i, j] >= max(3, array.max() * 0.55) else INK, fontsize=8, fontweight="bold")
+                ax.text(j, i, str(array[i, j]), ha="center", va="center", color="white" if array[i, j] >= max(3, array.max() * 0.55) else INK, fontsize=10.8, fontweight="bold")
     technology_labels = {
         "Construction materials": "Construction",
         "Dredging/placement/disposal": "Dredging / disposal",
@@ -627,125 +734,68 @@ def figure_4(
     ax.set_yticks(range(len(top_groups)), [textwrap.fill(x, 23) for x in top_groups])
     ax.set_xlim(-0.6, len(top_technologies) - 0.4)
     ax.set_ylim(len(top_groups) - 0.5, -0.5)
-    ax.tick_params(length=0)
+    ax.tick_params(length=0, labelsize=10.8)
     ax.spines[:].set_visible(False)
     ax.set_xticks(np.arange(-0.5, len(top_technologies), 1), minor=True)
     ax.set_yticks(np.arange(-0.5, len(top_groups), 1), minor=True)
     ax.grid(which="minor", color=LIGHT, lw=0.7)
     ax.tick_params(which="minor", bottom=False, left=False)
-    panel_label(ax, "D")
+    panel_label(ax, "B", fontsize=14)
 
-    save_figure(fig, output_dir, "Figure_04_Interpretation_context_circularity", dpi)
+    save_figure(fig, output_dir, "Figure_05_Environmental_outcomes_contributors", dpi)
 
 
-def figure_5(article: pd.DataFrame, outcomes: pd.DataFrame, tables: dict[str, pd.DataFrame], output_dir: Path, dpi: int) -> None:
-    fig = plt.figure(figsize=(16.2, 12.2), constrained_layout=True)
-    grid = fig.add_gridspec(2, 2, width_ratios=[1.02, 1], height_ratios=[1.03, 0.97], wspace=0.18, hspace=0.20)
-
-    ax = fig.add_subplot(grid[0, 0])
-    score_columns = [
-        "Score_FU_Boundaries",
-        "Score_Foreground_Data",
-        "Score_Background_DB",
-        "Score_LCIA_Reporting",
-        "Score_Allocation_Cutoff",
-        "Score_Robustness",
+def figure_6(article: pd.DataFrame, output_dir: Path, dpi: int) -> None:
+    circularity_columns = [
+        "Circularity_waste_prevention",
+        "Circularity_sediment_recycling_recovery",
+        "Circularity_byproduct_or_secondary_input",
+        "Circularity_avoided_burden_modelled",
     ]
-    labels = ["FU &\nboundaries", "Foreground\ndata", "Background\ndatabase", "LCIA\nreporting", "Allocation &\ncut-off", "Interpretation\nrobustness"]
-    quality = article.sort_values(["Methodological_Completeness_Score", "Record_ID"], ascending=[False, True])
-    matrix = quality[score_columns].to_numpy(dtype=float)
-    cmap = LinearSegmentedColormap.from_list("complete", ["#F1F4F6", "#A9C9DC", NAVY])
-    image = ax.imshow(matrix, cmap=cmap, aspect="auto", vmin=0, vmax=2)
-    ax.set_xticks(np.arange(len(labels)), labels)
-    ax.set_yticks(np.arange(len(quality)), quality["Record_ID"], fontsize=5.8)
-    ax.tick_params(length=0)
-    for i, total in enumerate(quality["Methodological_Completeness_Score"]):
-        ax.text(len(score_columns) + 0.10, i, f"{int(total)}", va="center", ha="left", fontsize=5.8, color=INK)
-    ax.text(len(score_columns) + 0.08, -1.3, "Total", ha="left", va="bottom", fontsize=7.2, color=MID, fontweight="bold")
-    ax.set_xlim(-0.5, len(score_columns) + 0.75)
-    ax.spines[:].set_visible(False)
-    colorbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.015, ticks=[0, 1, 2])
-    colorbar.set_label("Criterion score")
-    panel_label(ax, "A")
+    short_names = ["Waste prevention", "Sediment recycling / recovery", "Secondary input", "Avoided-burden modeling"]
+    patterns = Counter(tuple(yes(row[column]) for column in circularity_columns) for _, row in article.iterrows())
+    top = patterns.most_common(9)
+    x = np.arange(len(top))
+    values = np.array([value for _, value in top])
 
-    ax = fig.add_subplot(grid[0, 1])
-    evidence = tables["technology_contaminant"]
-    short = {
-        "Biological/phytoremediation": "Bio / phyto",
-        "Capping/in-situ amendment": "Capping / amendment",
-        "Construction materials": "Construction",
-        "Dredging/placement/disposal": "Dredging / disposal",
-        "Land/horticultural use": "Land use",
-        "Physical separation/flotation": "Physical separation",
-        "Solidification/stabilisation": "S/S",
-        "Thermal/microwave/calcination": "Thermal",
-        "Washing/leaching": "Washing / leaching",
-    }
-    array = evidence.to_numpy()
-    image = ax.imshow(array, cmap=LinearSegmentedColormap.from_list("evidence", ["#F3F6F8", "#A9D7CF", TEAL, NAVY]), aspect="auto", vmin=0, vmax=max(1, array.max()))
-    ax.set_xticks(np.arange(len(evidence.columns)), [short.get(x, x) for x in evidence.columns], rotation=45, ha="right")
-    ax.set_yticks(np.arange(len(evidence.index)), [textwrap.fill(str(x), 23) for x in evidence.index])
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            if array[i, j] > 0:
-                ax.text(j, i, str(int(array[i, j])), ha="center", va="center", fontsize=8, color="white" if array[i, j] > 0.52 * array.max() else INK, fontweight="bold")
-    ax.tick_params(length=0)
-    ax.spines[:].set_visible(False)
-    colorbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.015)
-    colorbar.set_label("Studies")
-    panel_label(ax, "B")
-
-    ax = fig.add_subplot(grid[1, 0])
-    setting = tables["setting_technologies"].copy()
-    denominators = article["Setting_group"].value_counts()
-    setting["Marine_share"] = setting["Marine/coastal"] / denominators["Marine/coastal"]
-    setting["Fresh_share"] = setting["Freshwater"] / denominators["Freshwater"]
-    setting["Max"] = setting[["Marine_share", "Fresh_share"]].max(axis=1)
-    setting = setting.sort_values(["Max"], ascending=True)
-    y = np.arange(len(setting))
-    for yy, marine, fresh in zip(y, setting["Marine_share"], setting["Fresh_share"]):
-        ax.hlines(yy, min(marine, fresh), max(marine, fresh), color="#B7C0C8", lw=1.8, zorder=1)
-    ax.scatter(setting["Marine_share"], y, s=62, color=BLUE, edgecolor="white", lw=0.7, label=f"Marine/coastal (n = {denominators['Marine/coastal']})", zorder=3)
-    ax.scatter(setting["Fresh_share"], y, s=62, color=TEAL, marker="D", edgecolor="white", lw=0.7, label=f"Freshwater (n = {denominators['Freshwater']})", zorder=3)
-    ax.set_yticks(y, [textwrap.fill(str(x), 29, break_long_words=False) for x in setting.index])
-    ax.set_xlim(0, max(0.62, setting["Max"].max() + 0.07))
-    ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-    ax.set_xlabel("Share of studies within each setting")
-    ax.grid(axis="x", color=LIGHT, lw=0.7)
-    ax.legend(frameon=False, loc="lower right", fontsize=8.2)
-    ax.spines["left"].set_color("#9AA4AD")
-    ax.spines["bottom"].set_color("#9AA4AD")
-    panel_label(ax, "C")
-
-    ax = fig.add_subplot(grid[1, 1])
-    signal_order = ["Higher-burden/hotspot signal", "Mixed/conditional signal", "Lower-burden signal"]
-    signal_labels = ["Higher burden / hotspot", "Mixed / conditional", "Lower burden"]
-    signal_colors = [RED, GOLD, TEAL]
-    summary = tables["outcome_summary"].copy()
-    summary = summary.sort_values(["Total_explicit_study_signals", "Impact_category"] if "Impact_category" in summary.columns else ["Total_explicit_study_signals"], ascending=True)
-    values = summary[signal_order].to_numpy()
-    yy, xx = np.indices((len(summary), len(signal_order)))
-    mask = values.ravel() > 0
-    ax.scatter(xx.ravel()[mask], yy.ravel()[mask], s=65 + 48 * values.ravel()[mask], c=np.array(signal_colors)[xx.ravel()[mask]], edgecolor="white", lw=1.0, zorder=3)
-    for i in range(values.shape[0]):
-        for j in range(values.shape[1]):
-            if values[i, j] > 0:
-                ax.text(j, i, str(int(values[i, j])), ha="center", va="center", color="white" if values[i, j] >= 4 else INK, fontsize=8, fontweight="bold", zorder=4)
-        ax.text(2.62, i, f"n = {int(summary.iloc[i]['Total_explicit_study_signals'])}", va="center", ha="left", fontsize=7.6, color=MID)
-    ax.set_xticks(range(3), signal_labels)
-    ax.set_yticks(range(len(summary)), [textwrap.fill(str(x), 24) for x in summary.index])
-    ax.set_xlim(-0.55, 3.15)
-    ax.set_ylim(-0.55, len(summary) - 0.45)
-    ax.tick_params(length=0)
-    ax.set_xticks(np.arange(-0.5, 3, 1), minor=True)
-    ax.set_yticks(np.arange(-0.5, len(summary), 1), minor=True)
-    ax.grid(which="minor", color=LIGHT, lw=0.65)
-    ax.tick_params(which="minor", bottom=False, left=False)
-    ax.spines[:].set_visible(False)
-    panel_label(ax, "D")
-
-    fig.text(0.5, -0.008, "Panel D counts explicit study-level directional statements; it does not pool LCIA magnitudes or rank technologies.", ha="center", va="top", fontsize=9, color=MID)
-    save_figure(fig, output_dir, "Figure_05_Integrated_evidence_and_outcomes", dpi)
+    fig, ax = plt.subplots(figsize=(11.8, 7.8), constrained_layout=False)
+    ax.bar(x, values, color=NAVY, width=0.67)
+    for xx, value in zip(x, values):
+        ax.text(xx, value + 0.35, str(value), ha="center", va="bottom", color=INK, fontsize=11.5, fontweight="bold")
+    base = -2.2
+    step = 1.05
+    for index, (pattern, _) in enumerate(top):
+        active = [i for i, present in enumerate(pattern) if present]
+        if len(active) > 1:
+            positions = [base - i * step for i in active]
+            ax.vlines(index, min(positions), max(positions), color=INK, lw=1.2)
+        for i, present in enumerate(pattern):
+            ax.scatter(index, base - i * step, s=82 if present else 48, color=TEAL if present else LIGHT, edgecolor="white" if present else "none", lw=0.5, zorder=3)
+    for i, label in enumerate(short_names):
+        ax.text(
+            -0.035,
+            base - i * step,
+            label,
+            transform=ax.get_yaxis_transform(),
+            ha="right",
+            va="center",
+            fontsize=11.5,
+            color=INK,
+            clip_on=False,
+        )
+    ax.set_xlim(-0.50, len(top) - 0.25)
+    ax.set_ylim(base - (len(short_names) - 1) * step - 0.72, max(values) + 2.0)
+    ax.set_xticks(x, [f"I{i + 1}" for i in range(len(top))])
+    ax.set_yticks(np.arange(0, max(values) + 1, 5))
+    ax.set_ylabel("Studies")
+    ax.set_xlabel(f"Study-level combination of circularity elements (n = {len(article)})")
+    ax.tick_params(axis="both", labelsize=11.2)
+    ax.xaxis.label.set_size(11.8)
+    ax.yaxis.label.set_size(11.8)
+    ax.grid(axis="y", color=LIGHT, lw=0.8, zorder=0)
+    clean_axis(ax)
+    fig.subplots_adjust(left=0.31, right=0.98, bottom=0.14, top=0.96)
+    save_figure(fig, output_dir, "Figure_06_Circularity_modeling", dpi)
 
 
 def categorical_distance(frame: pd.DataFrame, base_fields: list[str], method_fields: list[str], ignore_missing: bool) -> np.ndarray:
@@ -960,20 +1010,20 @@ def main() -> None:
     tables = derive_tables(data)
     export_tables(tables, args.output_dir)
 
-    figure_1(data["Screening"], args.output_dir, args.dpi)
     figure_2(article, args.output_dir, args.dpi)
     figure_3(article, tables, args.output_dir, args.dpi)
-    figure_4(article, data["Contribution Analysis"], tables, args.output_dir, args.dpi)
-    figure_5(article, data["Outcome Evidence"], tables, args.output_dir, args.dpi)
+    figure_4(article, tables, args.output_dir, args.dpi)
+    figure_5(article, data["Contribution Analysis"], data["Outcome Evidence"], tables, args.output_dir, args.dpi)
+    figure_6(article, args.output_dir, args.dpi)
     stability = figure_s1(article, args.output_dir, args.dpi)
     stability.to_csv(args.output_dir / "derived_tables" / "cluster_metric_stability.csv", index=False, encoding="utf-8-sig")
 
     stems = [
-        "Figure_01_PRISMA",
         "Figure_02_Evidence_trend",
-        "Figure_03_Methodological_choices",
-        "Figure_04_Interpretation_context_circularity",
-        "Figure_05_Integrated_evidence_and_outcomes",
+        "Figure_03_Evidence_coverage",
+        "Figure_04_Methodological_practices",
+        "Figure_05_Environmental_outcomes_contributors",
+        "Figure_06_Circularity_modeling",
         "Figure_S1_Clustering_audit",
     ]
     write_manifest(args.output_dir, args.workbook, len(article), stems)
